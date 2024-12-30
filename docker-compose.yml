@@ -1,0 +1,18 @@
+version: '3.8'
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: api
+    restart: always
+    ports:
+      - '3000:3000'
+    env_file:
+      - .env
+    networks:
+      - api_nfce_network
+
+networks:
+  api_nfce_network:
+    driver: bridge

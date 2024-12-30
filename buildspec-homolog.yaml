@@ -1,0 +1,25 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 16
+      python: 3.12
+  build:
+    commands:
+      - echo Build started on `date`
+      - npm install
+      - npm run prisma generate
+      - npm run build
+      - VERSION=$(cat package.json | python3 -c "import sys, json; print(json.load(sys.stdin)['version'])")
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - echo Druid123! > .docker.key
+      - docker login -u dinizsantosdruid --password-stdin < .docker.key
+      - rm .docker.key
+      - docker build --build-arg RELEASE_TYPE=homolog -t nfce:homolog-$VERSION .
+      - docker tag nfce:homolog-$VERSION 384481596250.dkr.ecr.sa-east-1.amazonaws.com/bubbe/nfce:homolog-$VERSION
+      - aws ecr get-login-password --region sa-east-1 | docker login --username AWS --password-stdin 384481596250.dkr.ecr.sa-east-1.amazonaws.com
+      - docker push 384481596250.dkr.ecr.sa-east-1.amazonaws.com/bubbe/nfce:homolog-$VERSION
+  post_build:
+    commands:
+      - echo Build completed on `date`

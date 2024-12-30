@@ -1,0 +1,34 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 16
+      python: 3.12
+  build:
+    commands:
+      - echo Build started on `date`
+      - npm install
+      - npm run prisma generate
+      - npm run build
+      - VERSION=$(cat package.json | python3 -c "import sys, json; print(json.load(sys.stdin)['version'])")
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - echo Druid123! > .docker.key
+      - docker login -u dinizsantosdruid --password-stdin < .docker.key
+      - rm .docker.key
+      - docker build --build-arg RELEASE_TYPE=prod -t nfce:prod-$VERSION .
+      - docker tag nfce:prod-$VERSION 038444195057.dkr.ecr.sa-east-1.amazonaws.com/bubbe/nfce:prod-$VERSION
+      - aws ecr get-login-password --region sa-east-1 | docker login --username AWS --password-stdin 038444195057.dkr.ecr.sa-east-1.amazonaws.com
+      - docker push 038444195057.dkr.ecr.sa-east-1.amazonaws.com/bubbe/nfce:prod-$VERSION
+      - >
+        aws cloudformation update-stack --capabilities CAPABILITY_AUTO_EXPAND CAPABILITY_IAM CAPABILITY_NAMED_IAM 
+        --stack-name=bubbe-nfce-prod --template-body file://./template.yaml 
+        --parameters ParameterKey=Image,ParameterValue=038444195057.dkr.ecr.sa-east-1.amazonaws.com/bubbe/nfce:prod-$VERSION 
+        ParameterKey=FullServiceName,ParameterValue=nfce-prod 
+        ParameterKey=ServiceName,ParameterValue=nfce-prod 
+        ParameterKey=Subdomain,ParameterValue=nfce-prod 
+        ParameterKey=MaxContainers,ParameterValue=3 
+        ParameterKey=Priority,ParameterValue=20 
+  post_build:
+    commands:
+      - echo Build completed on `date`

@@ -1,0 +1,299 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Cria ambiente do Nfce Bubbe.
+Parameters:
+  VPC:
+    Type: AWS::EC2::VPC::Id
+    Default: vpc-06b6f09b1e2142103
+  SubnetA:
+    Type: AWS::EC2::Subnet::Id
+    Default: subnet-0304aed83ce19f048
+  SubnetC:
+    Type: AWS::EC2::Subnet::Id
+    Default: subnet-0f5a3607b37f9aeed
+  Image:
+    Type: String
+    Default: 038444195057.dkr.ecr.sa-east-1.amazonaws.com/bubbe/nfce:0.0.1
+  FullServiceName:
+    Type: String
+    Default: nfce-preprod
+  ServiceName:
+    Type: String
+    Default: nfce-preprod
+  HealthCheckPath:
+    Type: String
+    Default: /api/
+  HostedZoneName:
+    Type: String
+    Default: bubbe.com.br
+  Subdomain:
+    Type: String
+    Default: nfce-preprod
+  MinContainers:
+    Type: Number
+    Default: 1
+  MaxContainers:
+    Type: Number
+    Default: 1
+  AutoScalingTargetValue:
+    Type: Number
+    Default: 70
+  CpuId:
+    Type: String
+    Default: 256    
+  MemId:
+    Type: String
+    Default: 1GB    
+  LoadBalancerId:
+    Type: String
+    Default: arn:aws:elasticloadbalancing:sa-east-1:038444195057:loadbalancer/app/bubbe-alb-prod-038444195057/7bd9189133c32f7e
+  LoadBalancerDNSNAME:
+    Type: String
+    Default: bubbe-alb-prod-038444195057-55674936.sa-east-1.elb.amazonaws.com
+  LoadBalancerHOSTZONEID:
+    Type: String
+    Default: Z2P70J7HTTTPLU    
+  LoadBalancerListenerHTTP:
+    Type: String
+    Default: arn:aws:elasticloadbalancing:sa-east-1:038444195057:listener/app/bubbe-alb-prod-038444195057/7bd9189133c32f7e/92992443a5691048
+  LoadBalancerListenerHTTPS:
+    Type: String
+    Default: arn:aws:elasticloadbalancing:sa-east-1:038444195057:listener/app/bubbe-alb-prod-038444195057/7bd9189133c32f7e/79393fddcae84b4f
+  Priority:
+    Type: Number
+    Default: 10
+
+Resources:
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Join ['', [!Ref ServiceName, Cluster]]
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    # Makes sure the log group is created before it is used.
+    DependsOn: LogGroup
+    Properties:
+      # Name of the task definition. Subsequent versions of the task definition are grouped together under this name.
+      Family: !Join ['', [!Ref ServiceName, TaskDefinition]]
+      # awsvpc is required for Fargate
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      # 256 (.25 vCPU) - Available memory values: 0.5GB, 1GB, 2GB
+      # 512 (.5 vCPU) - Available memory values: 1GB, 2GB, 3GB, 4GB
+      # 1024 (1 vCPU) - Available memory values: 2GB, 3GB, 4GB, 5GB, 6GB, 7GB, 8GB
+      # 2048 (2 vCPU) - Available memory values: Between 4GB and 16GB in 1GB increments
+      # 4096 (4 vCPU) - Available memory values: Between 8GB and 30GB in 1GB increments
+      Cpu: !Ref CpuId
+      # 0.5GB, 1GB, 2GB - Available cpu values: 256 (.25 vCPU)
+      # 1GB, 2GB, 3GB, 4GB - Available cpu values: 512 (.5 vCPU)
+      # 2GB, 3GB, 4GB, 5GB, 6GB, 7GB, 8GB - Available cpu values: 1024 (1 vCPU)
+      # Between 4GB and 16GB in 1GB increments - Available cpu values: 2048 (2 vCPU)
+      # Between 8GB and 30GB in 1GB increments - Available cpu values: 4096 (4 vCPU)
+      Memory: !Ref MemId
+      # A role needed by ECS.
+      # "The ARN of the task execution role that containers in this task can assume. All containers in this task are granted the permissions that are specified in this role."
+      # "There is an optional task execution IAM role that you can specify with Fargate to allow your Fargate tasks to make API calls to Amazon ECR."
+      ExecutionRoleArn: !Ref ExecutionRole
+      # "The Amazon Resource Name (ARN) of an AWS Identity and Access Management (IAM) role that grants containers in the task permission to call AWS APIs on your behalf."
+      TaskRoleArn: !Ref TaskRole
+      ContainerDefinitions:
+        - Name: !Ref ServiceName
+          Image: !Ref Image
+          PortMappings:
+            - ContainerPort: 3000
+          HealthCheck:
+            Command: [ "CMD-SHELL", !Join ["", ["curl -LI http://localhost:3000", !Ref HealthCheckPath, " -o /dev/null -w '%{http_code}\n' -s | grep 200 || exit 1"]]]
+            Interval: 30
+            Retries: 3
+            Timeout: 20
+            StartPeriod: 120
+          Ulimits:
+            - Name: nofile
+              HardLimit: 32767
+              SoftLimit: 32767
+          # Send logs to CloudWatch Logs
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref LogGroup
+              awslogs-stream-prefix: ecs
+  # A role needed by ECS
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['', [!Ref ServiceName, ExecutionRole]]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+  # A role for the containers
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['', [!Ref ServiceName, TaskRole]]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      # ManagedPolicyArns:
+      #   -
+      # Policies:
+      #   -
+  # A role needed for auto scaling
+  AutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['', [!Ref ServiceName, AutoScalingRole]]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceAutoscaleRole'
+  ContainerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Join ['', [!Ref ServiceName, ContainerSecurityGroup]]
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+  Service:
+    Type: AWS::ECS::Service
+    Properties: 
+      PlatformVersion: 1.4.0
+      ServiceName: !Ref ServiceName
+      Cluster: !Ref Cluster
+      TaskDefinition: !Ref TaskDefinition
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+      DesiredCount: 1
+      # This may need to be adjusted if the container takes a while to start up
+      HealthCheckGracePeriodSeconds: 240
+      LaunchType: FARGATE
+      NetworkConfiguration: 
+        AwsvpcConfiguration:
+          # change to DISABLED if you're using private subnets that have access to a NAT gateway
+          AssignPublicIp: DISABLED
+          Subnets:
+            - !Ref SubnetA
+            - !Ref SubnetC
+          SecurityGroups:
+            - !Ref ContainerSecurityGroup
+      LoadBalancers:
+        - ContainerName: !Ref ServiceName
+          ContainerPort: 3000
+          TargetGroupArn: !Ref TargetGroupHTTPS
+  TargetGroupHTTPS:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 30
+      # will look for a 200 status code by default unless specified otherwise
+      HealthCheckPath: !Ref HealthCheckPath
+      HealthCheckProtocol: HTTP
+      HealthCheckPort: 3000
+      Matcher:
+        HttpCode: 200-499
+      HealthCheckTimeoutSeconds: 20
+      UnhealthyThresholdCount: 3
+      HealthyThresholdCount: 2
+      Name: !Join ['', [!Ref ServiceName, TargetGroup,'HTTPS']]
+      Port: 3000
+      Protocol: HTTP
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 60 # default is 300
+        - Key: slow_start.duration_seconds
+          Value: 30 # default is 0
+      TargetType: ip
+      VpcId: !Ref VPC
+  ListenerRuleHTTP:
+    Type: 'AWS::ElasticLoadBalancingV2::ListenerRule'
+    Properties:
+      Actions:
+        - Type: redirect
+          RedirectConfig: 
+            Protocol: HTTPS
+            StatusCode: HTTP_302
+            Port: 443
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Join ['', [!Ref Subdomain, ., !Ref HostedZoneName]]
+      ListenerArn: !Ref LoadBalancerListenerHTTP
+      Priority: !Ref Priority
+  ListenerRuleHTTPS:
+    Type: 'AWS::ElasticLoadBalancingV2::ListenerRule'
+    Properties:
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroupHTTPS
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Join ['', [!Ref Subdomain, ., !Ref HostedZoneName]]
+      ListenerArn: !Ref LoadBalancerListenerHTTPS
+      Priority: !Ref Priority
+  DNSRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneName: !Join ['', [!Ref HostedZoneName, .]]
+      Name: !Join ['', [!Ref Subdomain, ., !Ref HostedZoneName, .]]
+      Type: A
+      AliasTarget:
+        DNSName: !Ref LoadBalancerDNSNAME
+        HostedZoneId: !Ref LoadBalancerHOSTZONEID
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['', [/ecs/, !Ref ServiceName, TaskDefinition]]
+      RetentionInDays: 3
+  AutoScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MinCapacity: !Ref MinContainers
+      MaxCapacity: !Ref MaxContainers
+      ResourceId: !Join ['/', [service, !Ref Cluster, !GetAtt Service.Name]]
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+      # "The Amazon Resource Name (ARN) of an AWS Identity and Access Management (IAM) role that allows Application Auto Scaling to modify your scalable target."
+      RoleARN: !GetAtt AutoScalingRole.Arn
+  AutoScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Join ['', [!Ref ServiceName, AutoScalingPolicy]]
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref AutoScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        ScaleInCooldown: 10
+        ScaleOutCooldown: 10
+        # Keep things at or lower than 50% CPU utilization, for example
+        TargetValue: !Ref AutoScalingTargetValue
+Outputs:
+  Endpoint:
+    Description: Endpoint
+    Value: !Join ['', ['https://', !Ref DNSRecord]]

@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model transactions {
+  id              Int       @id @default(autoincrement())
+  created_date    DateTime  @default(now())
+  amount          Float
+  fee             Float
+  sent_json       String?
+  received_json   String?
+  idpaymenttype   Int?
+  date_canceled   DateTime?
+  reason_canceled String?
+  integrationid   String?
+  idstudent       Int?
+  idparent        Int?
+  channel         String
+  description     String?
+  idemployee      Int?
+  ticket          String
+  type            String    @default("D") // Se "D" for o valor padrão
+  idestablishment Int?
+  iduser          Int?
+  pending         Boolean   @default(false)
+  saleid          String?
+  paid            Boolean   @default(false)
+  payment_date    DateTime?
+  saleidi         String?
+  payid           String?
+  paymentid       String?
+}
+
+model students {
+  id                Int       @id @default(autoincrement())
+  name              String
+  photo             String?
+  card              String?
+  idclass           Int?
+  password          String
+  salt              String
+  created_date      DateTime  @default(now())
+  last_login        DateTime?
+  login_count       Int       @default(0)
+  canrecharge       Boolean   @default(false)
+  active            Boolean   @default(true)
+  idestablishment   Int?
+  gender            String?
+  birthdate         DateTime?
+  automatictopup    Boolean   @default(false)
+  min_balance       Float     @default(0)
+  topupamount       Float     @default(0)
+  idparent          Int?
+  turma_description String?
+  id_family         Int?
+  taxa              Float?
+  cpf               String?
+  phone             String?
+  email             String?
+  current_balance   Float?
+}
+
+model nfce_transactions {
+  id                      Int      @id @default(autoincrement())
+  idtransaction           Int
+  idestablishment         Int
+  identificador           String
+  valor                   Float
+  chave_nfce              String
+  caminho_xml_nota_fiscal String
+  qrcode_url              String
+  url_consulta_nf         String
+  caminho_danfe           String
+  numero                  Int
+  serie                   Int
+  mensagem_sefaz          String
+  status_sefaz            Int
+  status                  String
+  created_date            DateTime @default(now())
+  updated_date            DateTime @updatedAt
+}
